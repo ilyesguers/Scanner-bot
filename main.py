@@ -47,22 +47,27 @@ def run_scanner():
         except: pass
         time.sleep(60)
 
-# --- التشغيل الآمن ---
-if __name__ == "__main__":
-    # تنظيف قسري لأي اتصال معلق في تليجرام
-    try:
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=True")
-        bot.remove_webhook()
-    except: pass
-    
-    # تشغيل الماسح في الخلفية
-    threading.Thread(target=run_scanner, daemon=True).start()
-    
-    # تشغيل البوت مع حلقة إعادة اتصال قوية
-    print("Zero Engine: Online & Stable")
+# --- نظام التحديث اليدوي (لإنهاء خطأ 409 للأبد) ---
+def run_manual_polling():
+    last_update_id = 0
     while True:
         try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
+            updates = bot.get_updates(offset=last_update_id + 1, timeout=20)
+            for update in updates:
+                last_update_id = update.update_id
+                bot.process_new_updates([update])
         except Exception as e:
-            print(f"Polling Error: {e}")
-            time.sleep(15)
+            time.sleep(5)
+
+if __name__ == "__main__":
+    # تنظيف أي Webhook سابق
+    try:
+        bot.delete_webhook()
+    except: pass
+    
+    # تشغيل الماسح
+    threading.Thread(target=run_scanner, daemon=True).start()
+    
+    # تشغيل نظام التحديث اليدوي
+    print("Zero Engine: Manual Polling Mode - Conflict Free")
+    run_manual_polling()
