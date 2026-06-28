@@ -49,19 +49,20 @@ def run_scanner():
 
 # --- التشغيل الآمن ---
 if __name__ == "__main__":
-    # 1. تنظيف أي اتصال سابق (الحل الجذري للخطأ 409)
+    # تنظيف قسري لأي اتصال معلق في تليجرام
     try:
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=True")
         bot.remove_webhook()
     except: pass
     
-    # 2. تشغيل الماسح
+    # تشغيل الماسح في الخلفية
     threading.Thread(target=run_scanner, daemon=True).start()
     
-    # 3. تشغيل البوت مع معالجة الأخطاء
+    # تشغيل البوت مع حلقة إعادة اتصال قوية
     print("Zero Engine: Online & Stable")
     while True:
         try:
             bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
         except Exception as e:
             print(f"Polling Error: {e}")
-            time.sleep(15) # انتظر 15 ثانية ثم أعد المحاولة
+            time.sleep(15)
